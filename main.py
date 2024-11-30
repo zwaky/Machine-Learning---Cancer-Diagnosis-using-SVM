@@ -12,6 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
 from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_validate
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -20,6 +21,38 @@ import warnings
 from time import process_time
 
 warnings.filterwarnings('ignore')
+
+def prepareData():
+    # Reads the file "dasta.csv" and returns a normalized Dataframe free of null entries
+    
+    df = pd.read_csv("data.csv")
+    # print(pd.head())
+
+    # Remove the last column which is empty
+    if df.columns[-1].startswith("Unnamed"):
+            df = df.iloc[:, :-1]  # Removes the last column
+
+    # Remove rows containing any 0 value
+    df = df[(df != 0).all(axis=1)] 
+    # Need to reset indeces because it still had the original indeces after removing the 0s
+    df.reset_index(drop=True, inplace=True)  
+    
+    # Extract target variable
+    target = df.pop('diagnosis')
+
+    # Convert target variable to 0 or 1
+    target.replace("M", 1, inplace=True)
+    target.replace("B", 0, inplace=True)
+
+    # Normalize the data
+    scale = StandardScaler()
+    df_norm = scale.fit_transform(df)
+    df_norm = pd.DataFrame(df_norm, columns=df.columns)
+            
+    # Reinsert "diagnosis" to the data
+    df_norm['diagnosis'] = target 
+    
+    return df_norm   
 
 def plot_relationships(df):
 
@@ -51,70 +84,107 @@ def plot_relationships(df):
 
     plt.show()
 
+def plot_heatmap(results):
+    # Receives results from GridSearchCV
+    # Visualisation of gridsearch performance
+    
+    # Create a DataFrame using results for plotting
+    df_results = pd.DataFrame(results)
+
+    # Pivot table to reshape data for heatmap
+    heatmap_data = df_results.pivot(index='param_gamma', columns='param_C', values='mean_test_score')
+    
+    x_labels = [f"{x:.3g}" for x in heatmap_data.columns]  # Columns are 'C' values
+    y_labels = [f"{y:.3g}" for y in heatmap_data.index]    # Indexes are 'gamma' values
+
+    # Plot the heatmap
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(heatmap_data, annot=True, fmt=".3f", cmap="viridis", cbar_kws={'label': 'Mean Test Score'},xticklabels=x_labels,yticklabels=y_labels)
+    plt.title("GridSearchCV Heatmap")
+    plt.xlabel("C")
+    plt.ylabel("Gamma")
+    plt.show()
+    
+def gridSearch(SVM, c_range, gamma_range, x, y):
+    # Receives a SVC() object
+    # Hyperparameters optimization
+    # C is cost of misclassification. Higher C leads to lower margins and overfitting
+    # Gamma controls how tight/detailed the islands surrounding the dataset are
+    
+    # Setup parameters for the girdsearch
+    parameters = {'C': c_range, 'gamma': gamma_range, 'kernel': ['rbf']}
+
+    # 5 fold cross-vailidation
+    param_optimization = GridSearchCV(estimator=SVM, param_grid=parameters, refit=True, verbose=0, cv=5)
+    param_optimization.fit(x,y)
+    
+    # Extract the best C and gamma
+    best_params = param_optimization.best_params_
+    best_C = best_params['C']
+    best_gamma = best_params['gamma']
+    
+    print(f"Best C: {float(best_C)}, Best Gamma: {float(best_gamma)}")        
+    # plot_heatmap(param_optimization.cv_results_)  
+    
+    
+    return param_optimization   
+
+
 def main():
 
-    df = pd.read_csv("data.csv")
-    # print(pd.head())
+    data = prepareData()    
 
-    # Remove the last column
-    if df.columns[-1].startswith("Unnamed"):
-            df = df.iloc[:, :-1]  # Removes the last column
+    # Divide features and target variable
+    y = data['diagnosis']
+    x = data.drop('diagnosis', axis = 1)
+    
+    # Default SVM parameters
+    SVM = SVC()
+    
+    # Perform 5-fold cross-validation
+    cv_scores = cross_validate(SVM, x, y, cv=5, scoring='accuracy')
 
-    # Extract target variable
-    target = df.pop('diagnosis')
+    # Output the results
+    print("5-Fold Model Accuracy:", cv_scores['test_score'].mean(), "\n")
+      
+    print("Default Hypderparameters:")
+    print("C = 1, gamma = " + str(1/x.columns.size) + "\n")
 
-    # Convert results to 0 or 1
-    target.replace("M", 1, inplace=True)
-    target.replace("B", 0, inplace=True)
+    # Do a gridsearch to find the optimal hyperparameters
+    print("First GridSearch:")
+    
+    # Create a hyperparameter search range
+    grid_size = 5
+    C = np.logspace(0, 3, grid_size)  # values from 10^0 (1) to 10^3 (1000)
+    gamma = np.logspace(-3, 1, grid_size)  # values from 10^-3 (0.001) to 10^1 (10)
+    
+    # Do gridsearch to get best parameters
+    model = gridSearch(SVM, c_range = C, gamma_range = gamma, x = x, y = y)
+    best_params = model.best_params_
+    best_C = best_params['C']
+    best_gamma = best_params['gamma']
+            
+    # Second gridsearch to further refine parameters
+    print("Second GridSearch:")
+    
+    # Create a new range using the previous best parameters
+    C = np.linspace(best_C / 2, best_C * 2, grid_size)
+    gamma = np.linspace(best_gamma / 2, best_gamma * 2, grid_size)
+    
+    # Do gridsearch and get best parameters    
+    model = gridSearch(SVM, c_range = C, gamma_range = gamma, x = x, y = y) 
+    best_params = model.best_params_
+    best_C = best_params['C']
+    best_gamma = best_params['gamma']
+    
+    SVM_optimized = SVC(C = best_C, gamma = best_gamma)
+    
+    
+    # Perform 5-fold cross-validation with new parameters
+    cv_scores_optimized = cross_validate(SVM_optimized, x, y, cv=5, scoring='accuracy')
 
-    # Return diagnosis to the data
-    df['diagnosis'] = target
-
-    # Normalize the data
-    scale = StandardScaler()
-    df_norm = scale.fit_transform(df)
-    df_norm = pd.DataFrame(df_norm, columns=df.columns)
-    df_norm['diagnosis'] = df['diagnosis']
-
-
-    # TODO clean up data
-    # # Setup data to recognize 0s as NAN values
-    # df.replace(0, np.nan, inplace=True)
-    # # check for NAN
-    # print(df.isna().sum())
-
-    #Showing how balanced the results are (relatively balanced in this case)
-    # print(pd.crosstab(target,target,normalize='all')*100)
-
-
-    y = df_norm['diagnosis']
-    x = df_norm.drop('diagnosis', axis = 1)
-    x_true, x_test, y_true, y_test = train_test_split(x,y,test_size=0.3, random_state=42)
-    SVM_classification = SVC()
-    SVM_classification.fit(x_true, y_true)
-
-    y_prediction = SVM_classification.predict(x_test)
-    predictions = pd.DataFrame({'y_true': y_test, 'y_prediction': y_prediction})
-
-
-    print(classification_report(y_test, y_prediction))
-
-
-    # Hyperparameters optimization
-    # C is cost of misclassification. Higher C leard to lower margins and overfitting
-    # Gamma controls how tight/detailed the islands surrounding the dataset are
-
-    parameters = {'C': [10, 100, 1000], 'gamma': ['scale', 0.01, 0.001], 'kernel': ['rbf']}
-
-    # 10 fold cross-vailidation
-    param_optimization = GridSearchCV(estimator=SVC(), param_grid=parameters, refit=True, verbose=1, cv=10)
-
-
-    param_optimization.fit(x_true,y_true)
-
-    print('Optimal hyperparameters:')
-    print(param_optimization.best_params_)
-
+    # Output the results
+    print("\nOptimized 5-Fold Model Accuracy:", cv_scores_optimized['test_score'].mean(), "\n")
 
     # print(process_time())
 
