@@ -31,6 +31,9 @@ def prepareData():
     # Remove the last column which is empty
     if df.columns[-1].startswith("Unnamed"):
             df = df.iloc[:, :-1]  # Removes the last column
+            
+    # Remove unneeded collumns
+    df.drop(['id'], axis = 1)
 
     # Remove rows containing any 0 value
     df = df[(df != 0).all(axis=1)] 
@@ -123,7 +126,7 @@ def gridSearch(SVM, c_range, gamma_range, x, y):
     best_C = best_params['C']
     best_gamma = best_params['gamma']
     
-    print(f"Best C: {float(best_C)}, Best Gamma: {float(best_gamma)}")        
+    # print(f"Best C: {float(best_C)}, Best Gamma: {float(best_gamma)}")        
     # plot_heatmap(param_optimization.cv_results_)  
     
     
@@ -144,14 +147,7 @@ def main():
     # Perform 5-fold cross-validation
     cv_scores = cross_validate(SVM, x, y, cv=5, scoring='accuracy')
 
-    # Output the results
-    print("5-Fold Model Accuracy:", cv_scores['test_score'].mean(), "\n")
-      
-    print("Default Hypderparameters:")
-    print("C = 1, gamma = " + str(1/x.columns.size) + "\n")
-
-    # Do a gridsearch to find the optimal hyperparameters
-    print("First GridSearch:")
+    # Do an initial gridsearch to find the optimal hyperparameters
     
     # Create a hyperparameter search range
     grid_size = 5
@@ -165,7 +161,6 @@ def main():
     best_gamma = best_params['gamma']
             
     # Second gridsearch to further refine parameters
-    print("Second GridSearch:")
     
     # Create a new range using the previous best parameters
     C = np.linspace(best_C / 2, best_C * 2, grid_size)
@@ -178,15 +173,23 @@ def main():
     best_gamma = best_params['gamma']
     
     SVM_optimized = SVC(C = best_C, gamma = best_gamma)
-    
-    
+         
     # Perform 5-fold cross-validation with new parameters
     cv_scores_optimized = cross_validate(SVM_optimized, x, y, cv=5, scoring='accuracy')
 
-    # Output the results
-    print("\nOptimized 5-Fold Model Accuracy:", cv_scores_optimized['test_score'].mean(), "\n")
+    # Print the optimization results
+    print("Default HyperParameters: C = 1.0, Gamma = ", float(1/x.columns.size) )
+    print("Optimized HyperParameters: C = ", float(best_C), ", Gamma = ", float(best_gamma), "\n")
+    print("Default 5-Fold Model Accuracy:", cv_scores['test_score'].mean())
+    print("Optimized 5-Fold Model Accuracy:", cv_scores_optimized['test_score'].mean(), "\n")
 
     # print(process_time())
+    
+    #TODO
+    # Use "data" to create 5 random subsets of data containing 50,175,300,425,550 entries. For each dataset, do a 5-fold cross-validation. 
+    # At the end show the accuracy of each model.
+    # Also show the TIME is took to test each model
+    
 
 if __name__ == "__main__":
     main()
