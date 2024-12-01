@@ -18,8 +18,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import warnings
-from time import process_time
-
 warnings.filterwarnings('ignore')
 
 def prepareData():
@@ -117,24 +115,17 @@ def gridSearch(SVM, c_range, gamma_range, x, y):
     # Setup parameters for the girdsearch
     parameters = {'C': c_range, 'gamma': gamma_range, 'kernel': ['rbf']}
 
-    # 5 fold cross-vailidation
+    # Gridsearch + doing 5 fold cross-vailidation
     param_optimization = GridSearchCV(estimator=SVM, param_grid=parameters, refit=True, verbose=0, cv=5)
     param_optimization.fit(x,y)
-    
-    # Extract the best C and gamma
-    best_params = param_optimization.best_params_
-    best_C = best_params['C']
-    best_gamma = best_params['gamma']
-    
-    # print(f"Best C: {float(best_C)}, Best Gamma: {float(best_gamma)}")        
-    # plot_heatmap(param_optimization.cv_results_)  
-    
     
     return param_optimization   
 
 
 def main():
-
+    
+    # As undergrad, I didn't have to do the gridSearch but it anyways out of curiosity
+    # Extract data and normalize it
     data = prepareData()    
 
     # Divide features and target variable
@@ -147,9 +138,9 @@ def main():
     # Perform 5-fold cross-validation
     cv_scores = cross_validate(SVM, x, y, cv=5, scoring='accuracy')
 
-    # Do an initial gridsearch to find the optimal hyperparameters
+    # Do an initial gridsearch to find the good hyperparameters
     
-    # Create a hyperparameter search range
+    # Create a search range for parameters
     grid_size = 5
     C = np.logspace(0, 3, grid_size)  # values from 10^0 (1) to 10^3 (1000)
     gamma = np.logspace(-3, 1, grid_size)  # values from 10^-3 (0.001) to 10^1 (10)
@@ -182,14 +173,45 @@ def main():
     print("Optimized HyperParameters: C = ", float(best_C), ", Gamma = ", float(best_gamma), "\n")
     print("Default 5-Fold Model Accuracy:", cv_scores['test_score'].mean())
     print("Optimized 5-Fold Model Accuracy:", cv_scores_optimized['test_score'].mean(), "\n")
+    
+    
+    # Using "data" to create 5 random subsets of data containing 50,175,300,425,550 entries. For each dataset, do a 5-fold cross-validation. 
+    # Determine accuracy for each model
+    # Determine time of testing for each model
+     
+    # All the required sizes for a 4:1 ratio   
+    subset_sizes = [50, 175, 300, 425, 550]
+    results = []
+    
+    
+    for size in subset_sizes:
+        
+        # Create a random subset of the data
+        data_subset = data.sample(n=size)        
+       
+        y = data_subset['diagnosis']
+        x = data_subset.drop('diagnosis', axis=1)
+        
+        # Initialize SVM model using the optimized parameters from before
+        SVM = SVC(C = best_C, gamma = best_gamma)
+              
+        # Perform 5-fold cross-validation        
+        cv_scores = cross_validate(SVM, x, y, cv=5, scoring='accuracy', return_train_score=False)
+                
+        # Calculate accuracy and  "time to test" each model
+        accuracy = cv_scores['test_score'].mean()
+        score_time = cv_scores['score_time'].mean()
+        
+        # Store results
+        results.append({'Subset Size': size, 'Accuracy': accuracy, 'Score Time': score_time})
 
-    # print(process_time())
-    
-    #TODO
-    # Use "data" to create 5 random subsets of data containing 50,175,300,425,550 entries. For each dataset, do a 5-fold cross-validation. 
-    # At the end show the accuracy of each model.
-    # Also show the TIME is took to test each model
-    
+    # Create a DataFrame to display results
+    results_df = pd.DataFrame(results)
+
+    # Print the results
+    print("Cross-Validation Results:")
+    print(results_df)
+          
 
 if __name__ == "__main__":
     main()
